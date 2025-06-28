@@ -5,15 +5,6 @@ dotenvConfig({ path: join(__dirname, '../.env') });
 
 export const config = {
     database: process.env.DATABASE,
-    discord: {
-        bot: {
-            token: process.env.DISCORD_BOT_TOKEN!,
-            id: process.env.DISCORD_BOT_ID!,
-            secret: process.env.DISCORD_BOT_SECRET!,
-            redirectUri: process.env.DISCORD_BOT_REDIRECT!
-        },
-        guildId: process.env.DISCORD_GUILD_ID!,
-    },
     game: {
         name: "Test",
         ended: false,

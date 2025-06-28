@@ -1,4 +1,4 @@
-type LoginMethod = "Discord";
+type LoginMethod = "Discord" | "Auto";
 
 interface PixelInfo {
     userID: string;

@@ -1,42 +1,33 @@
 import { RouteOptions } from "fastify";
 import { IncomingMessage, Server, ServerResponse } from "http";
 import { CookieSerializeOptions } from "@fastify/cookie";
-import { AuthHelper } from "../helpers/AuthHelper";
 import { MongoUser } from "../models/MongoUser";
 import { utils } from "../extra/Utils";
 import { config } from "../config";
-import { AuthLoginError, NotVerifiedEmailError } from "../errors";
 import { UserRole } from "../models/MongoUser";
 import { LoggingHelper } from "../helpers/LoggingHelper";
 
-export const login: RouteOptions<Server, IncomingMessage, ServerResponse, { Querystring: { code: string }; }> = {
+export const login: RouteOptions<Server, IncomingMessage, ServerResponse> = {
     method: 'GET',
     url: '/login',
-    schema: {
-        querystring: {
-            code: { type: 'string' },
-        }
-    },
+    schema: {},
     config: {
         rateLimit: {
-            max: 2,
-            timeWindow: '5s'
+            max: 5,
+            timeWindow: '10s'
         }
     },
     async handler(request, response) {
-        const auth = new AuthHelper();
-        const data = await auth.authCodeGrant(request.query.code);
+        // Генерируем уникальный ID для пользователя
+        const userId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const username = `Guest_${Math.random().toString(36).substr(2, 6)}`;
+        const token = utils.generateToken();
 
-        if("error" in data) throw new AuthLoginError();
-
-        const { id, username, verified } = await auth.getUserInfo();
-
-        if(!verified) throw new NotVerifiedEmailError();
-
-        const user: Omit<MongoUser, "_id" | "userID" | "username"> | null = await request.server.database.users
+        // Проверяем, существует ли уже пользователь с таким IP
+        const existingUser = await request.server.database.users
             .findOne(
                 {
-                    userID: id
+                    userID: { $regex: `^guest_.*_${request.ip.replace(/[^a-zA-Z0-9]/g, '')}$` }
                 },
                 {
                     projection: {
@@ -47,40 +38,49 @@ export const login: RouteOptions<Server, IncomingMessage, ServerResponse, { Quer
                 }
             );
 
-        const token = user?.token || utils.generateToken();
+        let finalUserId = userId;
+        let finalUsername = username;
+        let finalToken = token;
 
-        await request.server.database.users
-            .updateOne(
-                {
-                    userID: id
-                },
-                {
-                    $set: {
-                        token,
-                        userID: id,
-                        username: username,
-                        cooldown: user?.cooldown ?? 0,
-                        tag: user?.tag ?? null,
-                        badges: user?.badges ?? [],
-                        points: user?.points ?? 0,
-                        role: user?.role ?? UserRole.User,
-                    }
-                },
-                { upsert: true }
-            );
+        if (existingUser) {
+            // Если пользователь уже существует, используем его данные
+            finalUserId = existingUser.userID;
+            finalUsername = existingUser.username;
+            finalToken = existingUser.token;
+        } else {
+            // Создаем нового пользователя
+            await request.server.database.users
+                .updateOne(
+                    {
+                        userID: finalUserId
+                    },
+                    {
+                        $set: {
+                            token: finalToken,
+                            userID: finalUserId,
+                            username: finalUsername,
+                            cooldown: 0,
+                            tag: null,
+                            badges: [],
+                            points: 0,
+                            role: UserRole.User,
+                            banned: null
+                        }
+                    },
+                    { upsert: true }
+                );
+        }
 
         LoggingHelper.sendLoginSuccess({
-            userID: id,
-            nickname: username,
-            method: "Discord",
+            userID: finalUserId,
+            nickname: finalUsername,
+            method: "Auto",
             ip: request.headers["cf-connecting-ip"]
                 ? Array.isArray(request.headers["cf-connecting-ip"])
                     ? request.headers["cf-connecting-ip"][0]
                     : request.headers["cf-connecting-ip"]
                 : request.ip
         });
-
-        auth.joinPixelateitServer();
 
         const params: CookieSerializeOptions = {
             domain: config.frontend.split('//')[1].split(':')[0],
@@ -92,8 +92,8 @@ export const login: RouteOptions<Server, IncomingMessage, ServerResponse, { Quer
         }
 
         return response
-            .cookie('token', token, params)
-            .cookie('userid', id, params)
+            .cookie('token', finalToken, params)
+            .cookie('userid', finalUserId, params)
             .redirect(config.frontend);
     }
 }

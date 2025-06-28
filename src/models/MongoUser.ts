@@ -1,4 +1,4 @@
-export type DiscordUserId = string;
+export type UserId = string;
 
 export enum UserRole {
     User = 0,
@@ -7,7 +7,7 @@ export enum UserRole {
 }
 
 export interface BanInfo {
-    moderatorID: DiscordUserId;
+    moderatorID: UserId;
     timeout: number;
     reason: string | null;
 }
@@ -15,7 +15,7 @@ export interface BanInfo {
 export interface MongoUser {
     username: string;
     tag: string | null;
-    userID: DiscordUserId;
+    userID: UserId;
     cooldown: number;
     role: UserRole;
     token: string;
